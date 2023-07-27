@@ -1,0 +1,18 @@
+function Main.main 0
+call Main.myMethod 0
+pop temp 0
+push constant 0
+return
+function Main.myMethod 0
+call Main.myMethod2 0
+pop temp 0
+push constant 0
+return
+function Main.myMethod2 0
+call Main.myMethod3 0
+pop temp 0
+push constant 0
+return
+function Main.myMethod3 0
+push constant 0
+return

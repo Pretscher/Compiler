@@ -57,6 +57,9 @@ void CodeGenerator::createLookupTables() {
 				isMethod[currentSubroutine] = true;
 				argIndex = 1;
 			}
+			else if (type == "constructor") {
+				isMethod[currentSubroutine] = true;
+			}
 			else {
 				isMethod[currentSubroutine] = false;
 				argIndex = 0;
@@ -174,7 +177,12 @@ string CodeGenerator::convertVariable(string name) {
 		return functionLookupTables[currentSubroutine][name].kind + " " + to_string(functionLookupTables[currentSubroutine][name].index);
 	}
 	else if (classLookupTables[currentClass].count(name) > 0) {//then in class scope
-		return classLookupTables[currentClass][name].kind + " " + to_string(classLookupTables[currentClass][name].index);
+		string kind = classLookupTables[currentClass][name].kind;
+		if (kind == "this" && isMethod[currentSubroutine] == false) {
+			std::cout << "Static function " + currentSubroutine + " tries to use a field. ";
+			std::exit(0);
+		}
+		return kind + " " + to_string(classLookupTables[currentClass][name].index);
 	}
 	else {
  		return "";//in that case the identifier is a function or doesnt exist
@@ -313,20 +321,25 @@ int CodeGenerator::compileExpressionList() {
 }
 
 void CodeGenerator::compileSubroutineCall() {
-	if (getContent(parserOutput[currentLineIndex + 1]) == ".") {
+	if (getContent(parserOutput[currentLineIndex + 1]) == ".") {//the subroutine is in a different class
 		string classOrObjectName = line;
 		advance();
 		advanceExpecting(".");
 		bool isClassName = classLookupTables.count(classOrObjectName) > 0;
-		if (isClassName) {//try calling statically
+		if (isClassName) {//the subroutine is a function from a different class
 			compileFunctionCall(classOrObjectName);
 		}
-		else {//if not a class, it is an object. If also not an object, compileMethodCall will throw an error.
+		else {//the subroutine is a function from an object
 			compileMethodCall(classOrObjectName);
 		}
 	}
-	else {//the method is in the same class. This version will push THIS and use the CurrentClass for the name.
-		compileMethodCall();
+	else {//the subroutine is in the same class. 
+		if (isMethod[currentClass + "." + line]) {
+			compileMethodCall();
+		}
+		else {
+			compileFunctionCall(currentClass);
+		}
 	}
 }
 
@@ -338,13 +351,13 @@ void CodeGenerator::compileFunctionCall(string className) {
 	advanceExpecting("(");
 	int paramCount = compileExpressionList();
 	advanceExpecting(")");
-	print("call " + className + "." + functionName + " " + to_string(paramCount));
+	string fullName = className + "." + functionName;
+	print("call " + fullName + " " + to_string(paramCount));
 }
 
 void CodeGenerator::compileMethodCall(string objectName) {
 	string methodName = line;
 	advance();
-
 	string objectVar = convertVariable(objectName);
 	if (objectName == "") {
 		cout << "Object " << objectName << " does not exist.";
@@ -355,7 +368,8 @@ void CodeGenerator::compileMethodCall(string objectName) {
 	advanceExpecting(")");
 
 	string objectClass = getVariableType(objectName);
-	print("call " + objectClass + "." + methodName + " " + to_string(paramCount));
+	string fullName = objectClass + "." + methodName;
+	print("call " + fullName + " " + to_string(paramCount));
 }
 
 void CodeGenerator::compileMethodCall() {
@@ -366,7 +380,13 @@ void CodeGenerator::compileMethodCall() {
 	advanceExpecting("(");
 	int paramCount = compileExpressionList() + 1;//one extra parameter because argument[0] = this
 	advanceExpecting(")");
-	print("call " + currentClass + "." + methodName + " " + to_string(paramCount));
+
+	string fullName = currentClass + "." + methodName;
+	if (isMethod[currentSubroutine] == false) {
+		std::cout << "Static Function " + currentSubroutine + " tries to call method " + fullName + ", which is illegal.";
+		std::exit(0);
+	}
+	print("call " + fullName + " " + to_string(paramCount));
 }
 
 //statements

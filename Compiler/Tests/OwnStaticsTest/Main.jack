@@ -1,0 +1,28 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/09/Average/Main.jack
+
+// Inputs some numbers and computes their average
+class Main {
+   field int myField;
+   static int staticField;
+   function void main() {
+      do myMethod();
+      return;
+   }
+
+   function void myMethod() {
+      do myMethod2();
+      return;
+   }
+
+   function void myMethod2() {
+      do Main.myMethod3();
+      return;
+   }
+
+   function void myMethod3() {
+      return;
+   }
+}
