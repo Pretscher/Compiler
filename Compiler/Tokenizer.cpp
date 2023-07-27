@@ -134,22 +134,22 @@ vector<string> Tokenizer::lineToTokens(const string& input) const {
     for (char c : input) {
         if (c == '\"') {
             str.push_back(c);
-            if (currentlyInString == true) {
+            if (currentlyInString == true) {//end string if second " appears
                 currentlyInString = false;
-                tokens.push_back(str);//push string without splitting
+                tokens.push_back(str);//push entire string
                 str = "";
             }
             else {
-                if (token != "") {
-                    vector<string> splitToken = splitTokenAtSymbols(token);//push back all the tokens that were created until the string
+                if (token != "") {//if we just entered a string, we have to save the tokens that came before
+                    vector<string> splitToken = splitTokenAtSymbols(token);
                     tokens.insert(tokens.end(), splitToken.begin(), splitToken.end());
                     token = "";
                     currentlyInString = true;
                 }
             }
         }
-        else if (currentlyInString == false) {//dont split up strings at blanks
-            if (c == ' ') {
+        else if (currentlyInString == false) {
+            if (c == ' ') {//split at blanks
                 if (token != "") {
                     vector<string> splitToken = splitTokenAtSymbols(token);
                     tokens.insert(tokens.end(), splitToken.begin(), splitToken.end());

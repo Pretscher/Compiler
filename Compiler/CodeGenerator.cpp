@@ -2,7 +2,7 @@
 
 
 vector<string> CodeGenerator::compile() {
-	currentFunction = "Main.main";
+	currentSubroutine = "Main.main";
 	currentClass = "Main";
 	while (true) {
 		if (parserOutput[currentLineIndex].find("START_FILE_") != string::npos) {
@@ -51,16 +51,18 @@ void CodeGenerator::createLookupTables() {
 		else if (getLineType() == "subroutineDec") {
 			string type = advance();
 			advance(2);//advance 3 steps to the name of the function
-			currentFunction = currentClass + "." + line;
+			currentSubroutine = currentClass + "." + line;
 
 			if (type == "method") {//if we have a method, the first argument is always this, so we need to start counting at 1
+				isMethod[currentSubroutine] = true;
 				argIndex = 1;
 			}
 			else {
+				isMethod[currentSubroutine] = false;
 				argIndex = 0;
 			}
 
-			functionLookupTables[currentFunction] = map<string, Variable>();
+			functionLookupTables[currentSubroutine] = map<string, Variable>();
 			localIndex = 0;
 		}
 		else if (getLineType() == "classVarDec") {
@@ -130,7 +132,7 @@ void CodeGenerator::handleParameterList() {
 		if (getLineType() == "keyword" || getLineType() == "identifier") {
 			string type = line;
 			string name = advance();
-			functionLookupTables[currentFunction][name] = Variable(type, "argument", argIndex++);
+			functionLookupTables[currentSubroutine][name] = Variable(type, "argument", argIndex++);
 			advance();
 		}
 		if (line == "</parameterList>") {
@@ -148,11 +150,11 @@ void CodeGenerator::handleVarDeclaration() {
 	while (hasMoreLines()) {
 		string type = line;//go to the next from var, which is the type
 		string name = advance();
-		functionLookupTables[currentFunction][name] = Variable(type, "local", localIndex++);
+		functionLookupTables[currentSubroutine][name] = Variable(type, "local", localIndex++);
 		advance();//advance to , or ;
 		while (line == ",") {//while there are commata, add the variables
 			name = advance();
-			functionLookupTables[currentFunction][name] = Variable(type, "local", localIndex++);//type stays the same
+			functionLookupTables[currentSubroutine][name] = Variable(type, "local", localIndex++);//type stays the same
 			advance();
 		}
 		advanceExpecting(";");
@@ -168,8 +170,8 @@ void CodeGenerator::handleVarDeclaration() {
 
 //returns the vm translation for a variable with name x. for example, if its the first argument of a method, it returns "argument 0"
 string CodeGenerator::convertVariable(string name) {
-	if (functionLookupTables[currentFunction].count(name) > 0) {//first look up in method scope
-		return functionLookupTables[currentFunction][name].kind + " " + to_string(functionLookupTables[currentFunction][name].index);
+	if (functionLookupTables[currentSubroutine].count(name) > 0) {//first look up in method scope
+		return functionLookupTables[currentSubroutine][name].kind + " " + to_string(functionLookupTables[currentSubroutine][name].index);
 	}
 	else if (classLookupTables[currentClass].count(name) > 0) {//then in class scope
 		return classLookupTables[currentClass][name].kind + " " + to_string(classLookupTables[currentClass][name].index);
@@ -180,8 +182,8 @@ string CodeGenerator::convertVariable(string name) {
 }
 
 string CodeGenerator::getVariableType(string name) {
-	if (functionLookupTables[currentFunction].count(name) > 0) {//first look up in method scope
-		return functionLookupTables[currentFunction][name].type;
+	if (functionLookupTables[currentSubroutine].count(name) > 0) {//first look up in method scope
+		return functionLookupTables[currentSubroutine][name].type;
 	}
 	else if (classLookupTables[currentClass].count(name) > 0) {//then in class scope
 		return classLookupTables[currentClass][name].type;
@@ -195,12 +197,8 @@ string CodeGenerator::getVariableType(string name) {
 void CodeGenerator::compileExpression() {
 	advanceExpecting("<expression>");
 	compileTerm();
-	while (true) {//still a term? Compile another term or a mathematical operation that combines terms
+	while (true) {
 		if (getLineType() == "term") {
-			bool negate = false;
-			if (line == "-") {
-				negate = true;
-			}
 			compileTerm();
 		}
 		else if (Utility::isOperator(line)) {
@@ -290,9 +288,9 @@ void CodeGenerator::compileTerm() {
 		}
 	}
 	else if (line == "(") {
-		advance();//advance over (
+		advanceExpecting("(");
 		compileExpression();
-		advance();//advance over )
+		advanceExpecting(")");
 	}
 	else if (getLineType() == "expressionList") {
 		compileExpressionList();
@@ -315,57 +313,60 @@ int CodeGenerator::compileExpressionList() {
 }
 
 void CodeGenerator::compileSubroutineCall() {
-	bool doStatement = false;
-	if (getLineType() == "doStatement") {
-		doStatement = true;
-		advanceExpecting("<doStatement>");
-		advanceExpecting("do");
-	}
 	if (getContent(parserOutput[currentLineIndex + 1]) == ".") {
-		string classOrObjectOrFunctionName = line;
+		string classOrObjectName = line;
 		advance();
-		//look for method name
-		if (classLookupTables.count(classOrObjectOrFunctionName) > 0) {//its a class name, thus we try calling statically
-			advance();//line is now the functions name
-			compileFunctionCall(classOrObjectOrFunctionName, false);
+		advanceExpecting(".");
+		bool isClassName = classLookupTables.count(classOrObjectName) > 0;
+		if (isClassName) {//try calling statically
+			compileFunctionCall(classOrObjectName);
 		}
-		else {//its an object, so we try calling the function on the object
-			string object = convertVariable(classOrObjectOrFunctionName);
-			if (object == "") {
-				cout << "Object " << object << " does not exist.";
-				exit(0);
-			}
-			else {
-				print("push " + object);//push the object
-				string objectClass = getVariableType(classOrObjectOrFunctionName);
-				advance();//line is now the functions name
-				compileFunctionCall(objectClass, true);
-			}
+		else {//if not a class, it is an object. If also not an object, compileMethodCall will throw an error.
+			compileMethodCall(classOrObjectName);
 		}
 	}
-	else {//the method is in the same class
-		print("push pointer 0");//push this as the first argument instead of an object
-		compileFunctionCall(currentClass, true);//then the function is in the current class
-	}
-
-	if (doStatement == true) {
-		print("pop temp 0");//discard output
-		advanceExpecting(";");//do-statements always end in ;
-		advanceExpecting("</doStatement>");
+	else {//the method is in the same class. This version will push THIS and use the CurrentClass for the name.
+		compileMethodCall();
 	}
 }
 
-//call only wenn line is the functions name
-void CodeGenerator::compileFunctionCall(string className, bool method) {
-	string functionName = className + "." + line;
-	advance();//advance to '('
+
+void CodeGenerator::compileFunctionCall(string className) {
+	string functionName = line;
+	advance();
+
 	advanceExpecting("(");
 	int paramCount = compileExpressionList();
-	if (method) {
-		paramCount++;
-	}
 	advanceExpecting(")");
-	print("call " + functionName + " " + to_string(paramCount));
+	print("call " + className + "." + functionName + " " + to_string(paramCount));
+}
+
+void CodeGenerator::compileMethodCall(string objectName) {
+	string methodName = line;
+	advance();
+
+	string objectVar = convertVariable(objectName);
+	if (objectName == "") {
+		cout << "Object " << objectName << " does not exist.";
+	}
+	print("push " + objectVar);
+	advanceExpecting("(");
+	int paramCount = compileExpressionList() + 1;//one extra parameter because argument[0] = this
+	advanceExpecting(")");
+
+	string objectClass = getVariableType(objectName);
+	print("call " + objectClass + "." + methodName + " " + to_string(paramCount));
+}
+
+void CodeGenerator::compileMethodCall() {
+	string methodName = line;
+	advance();
+
+	print("push pointer 0");
+	advanceExpecting("(");
+	int paramCount = compileExpressionList() + 1;//one extra parameter because argument[0] = this
+	advanceExpecting(")");
+	print("call " + currentClass + "." + methodName + " " + to_string(paramCount));
 }
 
 //statements
@@ -374,12 +375,10 @@ void CodeGenerator::compileStatements() {
 	advanceExpecting("<statements>");
 	while (true) {
 		if (getLineType() == "letStatement") compileLet();
+		else if (getLineType() == "doStatement") compileDo();
 		else if (getLineType() == "returnStatement") compileReturn();
 		else if (getLineType() == "ifStatement") compileIf();
 		else if (getLineType() == "whileStatement") compileWhile();
-		else if (getLineType() == "doStatement") {
-			compileSubroutineCall();
-		}
 		else {
 			break;//no statements anymore
 		}
@@ -418,6 +417,17 @@ void CodeGenerator::compileLet() {
 	}
 	advanceExpecting(";");
 	advanceExpecting("</letStatement>");
+}
+
+void CodeGenerator::compileDo() {
+	advanceExpecting("<doStatement>");
+	advanceExpecting("do");
+
+	compileSubroutineCall();
+
+	print("pop temp 0");//do statements always discard the output (and there is always an output, even for void functions)
+	advanceExpecting(";");
+	advanceExpecting("</doStatement>");
 }
 
 void CodeGenerator::compileReturn() {
@@ -507,7 +517,7 @@ void CodeGenerator::compileConstructor() {
 	advanceExpecting("new");
 
 	string functionName = className + ".new";
-	currentFunction = functionName;//change the scopes every time a method is compiled, so that convertVariable works properly
+	currentSubroutine = functionName;//change the scopes every time a method is compiled, so that convertVariable works properly
 	print("function " + functionName + " " + to_string(getLocalCount(functionName)));
 	//get amount of fields in the class
 	int fieldCount = 0;
@@ -536,8 +546,8 @@ void CodeGenerator::compileFunction() {
 	}
 	advanceExpectingAny({ "method", "function" });
 	advance();//go to function name
-	currentFunction = currentClass + "." + line;//change the scopes every time a method is compiled, so that convertVariable works properly
-	print("function " + currentFunction + " " + to_string(getLocalCount(currentFunction)));
+	currentSubroutine = currentClass + "." + line;//change the scopes every time a method is compiled, so that convertVariable works properly
+	print("function " + currentSubroutine + " " + to_string(getLocalCount(currentSubroutine)));
 	if (method) {//set this correctly if method
 		print("push argument 0");
 		print("pop pointer 0");

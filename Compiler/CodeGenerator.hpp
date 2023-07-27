@@ -21,7 +21,6 @@ public:
 	void createLookupTables();
 
 private:
-	map<string, bool> isMethod;
 	const vector<string>& parserOutput;
 	int currentLineIndex = 0;
 	string line;
@@ -112,12 +111,12 @@ private:
 		int index;
 	};
 
-	string currentFunction, currentClass;//used to create the following tables and always instantly know, which maps to access
+	string currentSubroutine, currentClass;//used to create the following tables and always instantly know, which maps to access
 
 	map<string, map<string, Variable>> classLookupTables;//maps class name to class lookup table
 	int staticIndex, fieldIndex;
 	map<string, map<string, Variable>> functionLookupTables;//maps static function name to static function lookup table
-
+	map<string, bool> isMethod;
 	int argIndex, localIndex;
 
 	//should be called when the current line is <classVarDec>
@@ -150,8 +149,12 @@ private:
 
 	void compileSubroutineCall();
 
-	void compileFunctionCall(string functionName, bool method);
-	
+	//call when the next line is the function name
+	void compileFunctionCall(string className);
+	//Compiles a method call on an object with the given name. call when the next line is the method name
+	void compileMethodCall(string objectName);
+	//Compiles a method call on the current Object (this). call when the next line is the method name
+	void compileMethodCall();
 	//statements
 
 	void compileStatements();
@@ -164,6 +167,7 @@ private:
 
 	void compileWhile();
 
+	void compileDo();
 	//objects
 
 	void compileSubroutine();
