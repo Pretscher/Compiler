@@ -116,7 +116,7 @@ private:
 	map<string, map<string, Variable>> classLookupTables;//maps class name to class lookup table
 	int staticIndex, fieldIndex;
 	map<string, map<string, Variable>> functionLookupTables;//maps static function name to static function lookup table
-	map<string, bool> isMethod;
+	map<string, string> subroutineType;
 	int argIndex, localIndex;
 
 	//should be called when the current line is <classVarDec>
@@ -176,6 +176,7 @@ private:
 
 	void compileFunction();
 
+	void compileMethod();
 	//helpers
 
 	void changeClass();

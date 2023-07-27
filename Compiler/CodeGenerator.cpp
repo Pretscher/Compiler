@@ -53,15 +53,11 @@ void CodeGenerator::createLookupTables() {
 			advance(2);//advance 3 steps to the name of the function
 			currentSubroutine = currentClass + "." + line;
 
+			subroutineType[currentSubroutine] = type;
 			if (type == "method") {//if we have a method, the first argument is always this, so we need to start counting at 1
-				isMethod[currentSubroutine] = true;
 				argIndex = 1;
 			}
-			else if (type == "constructor") {
-				isMethod[currentSubroutine] = true;
-			}
-			else {
-				isMethod[currentSubroutine] = false;
+			else {//constructor and static functions
 				argIndex = 0;
 			}
 
@@ -178,7 +174,7 @@ string CodeGenerator::convertVariable(string name) {
 	}
 	else if (classLookupTables[currentClass].count(name) > 0) {//then in class scope
 		string kind = classLookupTables[currentClass][name].kind;
-		if (kind == "this" && isMethod[currentSubroutine] == false) {
+		if (kind == "this" && subroutineType[currentSubroutine] == "function") {
 			std::cout << "Static function " + currentSubroutine + " tries to use a field. ";
 			std::exit(0);
 		}
@@ -326,7 +322,7 @@ void CodeGenerator::compileSubroutineCall() {
 		advance();
 		advanceExpecting(".");
 		bool isClassName = classLookupTables.count(classOrObjectName) > 0;
-		if (isClassName) {//the subroutine is a function from a different class
+		if (isClassName) {//the subroutine is a constructor or static function from a different class
 			compileFunctionCall(classOrObjectName);
 		}
 		else {//the subroutine is a function from an object
@@ -334,10 +330,10 @@ void CodeGenerator::compileSubroutineCall() {
 		}
 	}
 	else {//the subroutine is in the same class. 
-		if (isMethod[currentClass + "." + line]) {
+		if (subroutineType[currentClass + "." + line] == "method") {
 			compileMethodCall();
 		}
-		else {
+		else {//constructor or static function
 			compileFunctionCall(currentClass);
 		}
 	}
@@ -382,7 +378,7 @@ void CodeGenerator::compileMethodCall() {
 	advanceExpecting(")");
 
 	string fullName = currentClass + "." + methodName;
-	if (isMethod[currentSubroutine] == false) {
+	if (subroutineType[currentSubroutine] == "function") {
 		std::cout << "Static Function " + currentSubroutine + " tries to call method " + fullName + ", which is illegal.";
 		std::exit(0);
 	}
@@ -525,13 +521,15 @@ void CodeGenerator::compileWhile() {
 
 void CodeGenerator::compileSubroutine() {
 	advanceExpecting("<subroutineDec>");
-	if (line == "constructor") compileConstructor();
-	if (line == "method" || line == "function") compileFunction();
+	string subroutineType = line;
+	advance();//go to function name
+	if (subroutineType == "constructor") compileConstructor();
+	else if (subroutineType == "method") compileMethod();
+	else if (subroutineType == "function") compileFunction();
 	advanceExpecting("</subroutineDec>");
 }
 
 void CodeGenerator::compileConstructor() {
-	advanceExpecting("constructor");
 	string className = line;
 	advance();
 	advanceExpecting("new");
@@ -551,6 +549,7 @@ void CodeGenerator::compileConstructor() {
 	print("call Memory.alloc 1");
 	print("pop pointer 0");
 
+	//jump over vardec because we handled those in first cycle
 	while (getLineType() != "statements") {
 		advance();
 	}
@@ -560,18 +559,26 @@ void CodeGenerator::compileConstructor() {
 }
 
 void CodeGenerator::compileFunction() {
-	bool method = false;
-	if (line == "method") {
-		method = true;
-	}
-	advanceExpectingAny({ "method", "function" });
-	advance();//go to function name
+	advance();//advance over return type, all we need to do with it is handled in returnStatement
 	currentSubroutine = currentClass + "." + line;//change the scopes every time a method is compiled, so that convertVariable works properly
 	print("function " + currentSubroutine + " " + to_string(getLocalCount(currentSubroutine)));
-	if (method) {//set this correctly if method
-		print("push argument 0");
-		print("pop pointer 0");
+	//jump over variable declarations, because they were handled in the first cycle
+	while (getLineType() != "statements") {
+		advance();
 	}
+	compileStatements();
+	advanceExpecting("}");
+	advanceExpecting("</subroutineBody>");//neccessary so that the methos ends with </subroutineDec>, which compileSubroutine() expects
+}
+
+void CodeGenerator::compileMethod() {
+	advance();//advance over return type, all we need to do with it is handled in returnStatement
+	currentSubroutine = currentClass + "." + line;
+	print("function " + currentSubroutine + " " + to_string(getLocalCount(currentSubroutine)));
+	//set THIS to args[0]
+	print("push argument 0");
+	print("pop pointer 0");
+	//jump over variable declarations, because they were handled in the first cycle
 	while (getLineType() != "statements") {
 		advance();
 	}
